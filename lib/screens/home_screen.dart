@@ -23,7 +23,6 @@ class _HomeScreenState extends State<HomeScreen> {
   DashboardStats? _stats;
   List<TeleFile>? _searchResults;
   String _category = 'Semua';
-  String _query = '';
   bool _loading = false;
   bool _telegramDown = false;
   String? _error;
@@ -87,7 +86,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _doSearch(String q) async {
-    _query = q;
     if (q.trim().isEmpty) {
       setState(() => _searchResults = null);
       return;
