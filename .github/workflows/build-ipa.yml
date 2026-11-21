@@ -37,7 +37,7 @@ jobs:
         run: |
           mkdir -p build/ios/ipa/Payload
           cp -R build/ios/archive/Runner.xcarchive/Products/Applications/*.app build/ios/ipa/Payload/
-          cd build/ios/ipa && zip -qr teledrive-unsigned.ipa Payload
+          (cd build/ios/ipa && zip -qr teledrive-unsigned.ipa Payload)
           ls -lh build/ios/ipa/
       - name: Upload IPA
         uses: actions/upload-artifact@v4
