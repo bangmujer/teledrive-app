@@ -1,0 +1,39 @@
+name: Build TeleDrive IPA (iOS, unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build-ipa:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.5"
+          channel: stable
+      - name: Select latest Xcode
+        run: |
+          LATEST_XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)
+          sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
+          xcodebuild -version
+      # Repo ini sengaja hanya berisi lib/ + pubspec (tanpa folder android/ios
+      # yang di-generate). Kalau folder platform belum ada, generate dulu.
+      - name: Generate platform folders if missing
+        run: |
+          if [ ! -d android ] || [ ! -d ios ]; then flutter create . --org com.bangmujer --project-name teledrive --platforms android,ios; fi
+      - name: Get dependencies
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      # Unsigned IPA: --no-codesign. Install via TrollStore / Feather / ESign / AltStore.
+      - name: Build unsigned IPA
+        run: flutter build ipa --release --no-codesign
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: teledrive-unsigned-ipa
+          path: build/ios/ipa/*.ipa
+          retention-days: 30
