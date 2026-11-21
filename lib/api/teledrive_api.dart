@@ -123,21 +123,23 @@ class TeleDriveApi {
   // ---------- Auth web ----------
 
   Future<void> login(String username, String password) async {
-    final uri = Uri.parse('$_baseUrl/login');
-    final res = await http.post(
-      uri,
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: {'username': username, 'password': password},
-    ).timeout(const Duration(seconds: 30));
+    // JANGAN pakai http.post: backend menjawab 303 + Set-Cookie, dan
+    // http.post mengikuti redirect sampai halaman akhir — header
+    // Set-Cookie dari respons 303 itu hilang di respons akhir, sehingga
+    // login selalu dianggap gagal walau username/password benar.
+    // Matikan followRedirects dan baca cookie langsung dari respons 303.
+    final req = http.Request('POST', Uri.parse('$_baseUrl/login'))
+      ..headers['Content-Type'] = 'application/x-www-form-urlencoded'
+      ..bodyFields = {'username': username, 'password': password}
+      ..followRedirects = false;
+    final streamed = await req.send().timeout(const Duration(seconds: 30));
+    final res = await http.Response.fromStream(streamed);
     // Sukses = redirect 303 + Set-Cookie. Gagal = 200 (template login.html).
     final cookie = _extractCookie(res);
     if (cookie.isNotEmpty) {
       _cookie = cookie;
       await _prefs?.setString(_kCookie, cookie);
       return;
-    }
-    if (res.statusCode == 303 || res.statusCode == 302) {
-      throw AuthException('Login gagal: cookie tidak diterima.');
     }
     throw AuthException('Username atau password salah.');
   }
