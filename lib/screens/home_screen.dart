@@ -171,19 +171,28 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _upload() async {
+    final messenger = ScaffoldMessenger.of(context);
     final picked = await FilePicker.platform.pickFiles();
     if (picked == null || picked.files.single.path == null) return;
+    if (!mounted) return;
     final path = picked.files.single.path!;
     final name = picked.files.single.name;
-    showInfo(context, 'Mengupload $name...');
+    messenger.showSnackBar(SnackBar(content: Text('Mengupload $name...')));
     try {
       await api.uploadFile(File(path), name, _folderId);
-      if (mounted) showInfo(context, 'Upload selesai: $name');
+      if (mounted) {
+        messenger.showSnackBar(
+            SnackBar(content: Text('Upload selesai: $name')));
+      }
       await _loadAll();
     } on TelegramDisconnectedException {
       if (mounted) setState(() => _telegramDown = true);
     } catch (e) {
-      if (mounted) showError(context, e, prefix: 'Upload gagal');
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(
+            content: Text(
+                'Upload gagal: ${e.toString().replaceFirst('Exception: ', '')}')));
+      }
     }
   }
 
@@ -302,12 +311,18 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.sync),
             tooltip: 'Sync Telegram',
             onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
               try {
                 final added = await api.syncNow();
-                if (mounted) showInfo(context, 'Sync selesai, $added file baru.');
+                if (!mounted) return;
+                messenger.showSnackBar(SnackBar(
+                    content: Text('Sync selesai, $added file baru.')));
                 await _loadAll();
               } catch (e) {
-                if (mounted) showError(context, e, prefix: 'Sync gagal');
+                if (!mounted) return;
+                messenger.showSnackBar(SnackBar(
+                    content: Text(
+                        'Sync gagal: ${e.toString().replaceFirst('Exception: ', '')}')));
               }
             },
           ),
