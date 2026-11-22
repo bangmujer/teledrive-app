@@ -426,22 +426,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _syncNow() async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final added = await api.syncNow();
-      if (!mounted) return;
-      messenger.showSnackBar(
-          SnackBar(content: Text('Sync selesai, $added file baru.')));
-      await _loadAll();
-    } catch (e) {
-      if (!mounted) return;
-      messenger.showSnackBar(SnackBar(
-          content: Text(
-              'Sync gagal: ${e.toString().replaceFirst('Exception: ', '')}')));
-    }
-  }
-
   int _countFor(String cat) {
     if (_stats == null) return 0;
     final entry = _stats!.categories[cat];
@@ -773,12 +757,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          GlassIconButton(
-            icon: Icons.sync_rounded,
-            tooltip: 'Sync Telegram',
-            onPressed: _syncNow,
-          ),
-          const SizedBox(width: 6),
           GlassIconButton(
             icon: Icons.settings_rounded,
             tooltip: 'Pengaturan Sync',
