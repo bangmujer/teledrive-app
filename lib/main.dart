@@ -4,6 +4,7 @@ import 'api/teledrive_api.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/telegram_login_screen.dart';
+import 'theme.dart';
 
 final api = TeleDriveApi();
 
@@ -21,10 +22,7 @@ class TeleDriveApp extends StatelessWidget {
     return MaterialApp(
       title: 'TeleDrive',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-        useMaterial3: true,
-      ),
+      theme: TeleDriveTheme.light(),
       home: api.hasSession ? const HomeScreen() : const LoginScreen(),
       routes: {
         '/login': (_) => const LoginScreen(),
