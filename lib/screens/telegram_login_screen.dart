@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api/teledrive_api.dart';
 import '../main.dart';
 import '../models.dart';
+import '../theme.dart';
 
 /// Login Telegram via web API backend.
 /// Alurnya sama seperti halaman /telegram-login di web:
@@ -105,8 +106,10 @@ class _TelegramLoginScreenState extends State<TelegramLoginScreen> {
     final st = _status;
     final pending = st?.pending ?? false;
     final needsPassword = st?.needsPassword ?? false;
-    return Scaffold(
-      appBar: AppBar(
+    return GlassBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
         title: const Text('Login Telegram'),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
@@ -126,7 +129,10 @@ class _TelegramLoginScreenState extends State<TelegramLoginScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Card(
+            GlassCard(
+              blur: false,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: ListTile(
                 leading: Icon(
                   (st?.connected ?? false) ? Icons.check_circle : Icons.warning,
@@ -224,6 +230,7 @@ class _TelegramLoginScreenState extends State<TelegramLoginScreen> {
           ],
         ),
       ),
+    ),
     );
   }
 }
