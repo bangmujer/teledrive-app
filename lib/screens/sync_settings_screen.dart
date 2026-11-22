@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../models.dart';
+import '../theme.dart';
 
 /// Pengaturan sync: manual / auto / off + interval.
 /// Mengikuti /api/sync-settings di backend (tersimpan di DB, selamat restart).
@@ -62,13 +63,16 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Pengaturan Sync')),
-      body: _loading
+    return GlassBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(title: const Text('Pengaturan Sync')),
+        body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : Padding(
+          : SingleChildScrollView(
               padding: const EdgeInsets.all(20),
-              child: Column(
+              child: GlassCard(
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Text(
@@ -133,8 +137,10 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
                     child: const Text('Sync Sekarang'),
                   ),
                 ],
+                ),
               ),
             ),
+      ),
     );
   }
 }
