@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -30,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loading = false;
   bool _telegramDown = false;
   bool _gridView = false;
+  String _sortMode = 'newest';
   String? _error;
 
   static const categories = [
@@ -141,6 +143,9 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _category = cat;
       _searchQuery = '';
+      // WAJIB: kosongkan hasil filter lama, kalau tidak daftar Image
+      // (atau kategori lain) tetap tampil walau sudah pilih Semua.
+      if (cat == 'Semua') _searchResults = null;
     });
     if (cat == 'Semua') {
       await _loadContentOnly();
@@ -175,6 +180,50 @@ class _HomeScreenState extends State<HomeScreen> {
       _category = 'Semua';
     });
     await _loadContentOnly();
+  }
+
+  Future<void> _jumpToFolder(int depth) async {
+    // depth 0 = Root, depth n = folder ke-n di _stack.
+    if (depth < 0 || depth > _stack.length) return;
+    _stack.removeRange(depth, _stack.length);
+    setState(() {
+      _folderId = _stack.isEmpty ? 0 : _stack.last.id;
+      _searchResults = null;
+      _searchQuery = '';
+      _category = 'Semua';
+    });
+    await _loadContentOnly();
+  }
+
+  List<TeleFolder> _sortedFolders(List<TeleFolder> folders) {
+    final list = List<TeleFolder>.of(folders);
+    list.sort((a, b) =>
+        a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return list;
+  }
+
+  List<TeleFile> _sortedFiles(List<TeleFile> files) {
+    final list = List<TeleFile>.of(files);
+    switch (_sortMode) {
+      case 'name':
+        list.sort((a, b) =>
+            a.fileName.toLowerCase().compareTo(b.fileName.toLowerCase()));
+        break;
+      case 'oldest':
+        list.sort((a, b) => a.uploadTime.compareTo(b.uploadTime));
+        break;
+      case 'largest':
+        list.sort((a, b) => b.fileSize.compareTo(a.fileSize));
+        break;
+      case 'smallest':
+        list.sort((a, b) => a.fileSize.compareTo(b.fileSize));
+        break;
+      case 'newest':
+      default:
+        list.sort((a, b) => b.uploadTime.compareTo(a.uploadTime));
+        break;
+    }
+    return list;
   }
 
   Future<void> _promptText({
@@ -259,7 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => FilePreviewScreen(file: f)),
+      CupertinoPageRoute(builder: (_) => FilePreviewScreen(file: f)),
     );
     // File bisa saja dihapus/diubah dari preview lewat share; segarkan.
     await _refreshAfterMutation();
@@ -272,6 +321,11 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: const Icon(Icons.info_rounded),
+              title: const Text('Detail file'),
+              onTap: () => Navigator.of(ctx).pop('detail'),
+            ),
             if (isPreviewable(f))
               ListTile(
                 leading: const Icon(Icons.visibility_rounded),
@@ -307,7 +361,34 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (choice == null || !mounted) return;
     try {
-      if (choice == 'preview') {
+      if (choice == 'detail') {
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(f.fileName),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Ukuran: ${formatBytes(f.fileSize)}'),
+                const SizedBox(height: 6),
+                Text('Kategori: ${f.category}'),
+                const SizedBox(height: 6),
+                Text('Di-upload: ${f.uploadTime}'),
+                const SizedBox(height: 6),
+                Text('ID file: ${f.id}'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Tutup'),
+              ),
+            ],
+          ),
+        );
+      } else if (choice == 'preview') {
         await _openPreview(f);
       } else if (choice == 'download') {
         await _downloadAndShare(f);
@@ -507,12 +588,33 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final files = _searchResults ?? _content?.files ?? const <TeleFile>[];
+    final files = _sortedFiles(
+        _searchResults ?? _content?.files ?? const <TeleFile>[]);
     final folders = _searchResults == null
-        ? (_content?.folders ?? const <TeleFolder>[])
+        ? _sortedFolders(_content?.folders ?? const <TeleFolder>[])
         : const <TeleFolder>[];
+    final canPopSystem = _stack.isEmpty &&
+        _searchQuery.trim().isEmpty &&
+        _category == 'Semua';
     return GlassBackground(
-      child: Scaffold(
+      child: PopScope(
+        // Gesture/back button: di subfolder -> naik, di filter/search
+        // -> reset ke Semua, baru keluar app kalau sudah di Root.
+        canPop: canPopSystem,
+        onPopInvokedWithResult: (didPop, _) async {
+          if (didPop) return;
+          if (_stack.isNotEmpty) {
+            await _goBackFolder();
+          } else {
+            setState(() {
+              _searchQuery = '';
+              _category = 'Semua';
+              _searchResults = null;
+            });
+            await _loadContentOnly();
+          }
+        },
+        child: Scaffold(
         backgroundColor: Colors.transparent,
         extendBody: true,
         floatingActionButton: FloatingActionButton.extended(
@@ -547,6 +649,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         delay: const Duration(milliseconds: 160),
                         child: _categoryRow(),
                       ),
+                      if (_stack.isNotEmpty) _breadcrumbs(),
                       const SizedBox(height: 18),
                       if (_loading)
                         const Padding(
@@ -606,6 +709,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 
@@ -679,7 +783,8 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icons.settings_rounded,
             tooltip: 'Pengaturan Sync',
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SyncSettingsScreen()),
+              CupertinoPageRoute(
+                  builder: (_) => const SyncSettingsScreen()),
             ),
           ),
           const SizedBox(width: 6),
@@ -907,6 +1012,53 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _breadcrumbs() {
+    final crumbs = ['Root', ..._stack.map((f) => f.name)];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (int i = 0; i < crumbs.length; i++) ...[
+              if (i > 0)
+                const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: TeleDriveTheme.inkSoft),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: i == crumbs.length - 1
+                    ? null
+                    : () => _jumpToFolder(i),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: i == crumbs.length - 1
+                        ? TeleDriveTheme.teal
+                        : Colors.white.withOpacity(0.65),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.8)),
+                  ),
+                  child: Text(
+                    crumbs[i],
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                      color: i == crumbs.length - 1
+                          ? Colors.white
+                          : TeleDriveTheme.ink,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _sectionTitle(String title, int count) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10, top: 2),
@@ -938,6 +1090,35 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const Spacer(),
+          if (title == 'File')
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.sort_rounded,
+                  color: TeleDriveTheme.ink),
+              tooltip: 'Urutkan',
+              onSelected: (v) => setState(() => _sortMode = v),
+              itemBuilder: (_) => [
+                CheckedPopupMenuItem(
+                    value: 'newest',
+                    checked: _sortMode == 'newest',
+                    child: const Text('Terbaru')),
+                CheckedPopupMenuItem(
+                    value: 'oldest',
+                    checked: _sortMode == 'oldest',
+                    child: const Text('Terlama')),
+                CheckedPopupMenuItem(
+                    value: 'name',
+                    checked: _sortMode == 'name',
+                    child: const Text('Nama (A-Z)')),
+                CheckedPopupMenuItem(
+                    value: 'largest',
+                    checked: _sortMode == 'largest',
+                    child: const Text('Terbesar')),
+                CheckedPopupMenuItem(
+                    value: 'smallest',
+                    checked: _sortMode == 'smallest',
+                    child: const Text('Terkecil')),
+              ],
+            ),
           if (title == 'File')
             GlassIconButton(
               icon: _gridView
