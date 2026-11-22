@@ -243,7 +243,15 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
         return InteractiveViewer(
           maxScale: 4,
           child: Center(
-            child: Image.file(local, fit: BoxFit.contain),
+            child: Image.file(
+              local,
+              fit: BoxFit.contain,
+              frameBuilder: (ctx, child, frame, _) => AnimatedOpacity(
+                opacity: frame == null ? 0 : 1,
+                duration: const Duration(milliseconds: 300),
+                child: child,
+              ),
+            ),
           ),
         );
       case PreviewKind.video:
