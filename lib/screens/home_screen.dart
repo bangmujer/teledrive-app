@@ -25,6 +25,7 @@ class _HomeScreenState extends State<HomeScreen> {
   FolderContent? _content;
   DashboardStats? _stats;
   List<TeleFile>? _searchResults;
+  String _searchQuery = '';
   String _category = 'Semua';
   bool _loading = false;
   bool _telegramDown = false;
@@ -65,6 +66,10 @@ class _HomeScreenState extends State<HomeScreen> {
         _content = results[0] as FolderContent;
         _stats = results[1] as DashboardStats;
       });
+      // Kalau sedang di tampilan filter/pencarian, segarkan juga daftar
+      // yang sedang tampil — kalau tidak, daftar lama yang tetap dipakai
+      // dan perubahan (mis. file terhapus) tidak kelihatan.
+      await _refetchActiveList();
     } on TelegramDisconnectedException {
       if (mounted) setState(() => _telegramDown = true);
     } on AuthException {
@@ -89,7 +94,37 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Mengambil ulang daftar yang sedang tampil (hasil pencarian atau
+  /// filter kategori). Tanpa ini, _searchResults lama terus dipakai dan
+  /// hapus/extract/upload tampak tidak berpengaruh.
+  Future<void> _refetchActiveList() async {
+    try {
+      if (_searchQuery.trim().isNotEmpty) {
+        final r = await api.search(_searchQuery);
+        if (mounted) setState(() => _searchResults = r);
+      } else if (_category != 'Semua') {
+        final r = await api.getCategory(_category);
+        if (mounted) setState(() => _searchResults = r);
+      }
+    } on AuthException {
+      if (mounted) Navigator.of(context).pushReplacementNamed('/login');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  /// Segarkan tampilan setelah perubahan data (hapus, extract, rename,
+  /// buat folder): daftar aktif (pencarian/filter) atau isi folder.
+  Future<void> _refreshAfterMutation() async {
+    if (_searchQuery.trim().isNotEmpty || _category != 'Semua') {
+      await _refetchActiveList();
+    } else {
+      await _loadContentOnly();
+    }
+  }
+
   Future<void> _doSearch(String q) async {
+    _searchQuery = q;
     if (q.trim().isEmpty) {
       setState(() => _searchResults = null);
       return;
@@ -103,7 +138,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _doCategory(String cat) async {
-    setState(() => _category = cat);
+    setState(() {
+      _category = cat;
+      _searchQuery = '';
+    });
     if (cat == 'Semua') {
       await _loadContentOnly();
       return;
@@ -121,6 +159,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _folderId = f.id;
       _searchResults = null;
+      _searchQuery = '';
       _category = 'Semua';
     });
     await _loadContentOnly();
@@ -132,6 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _folderId = _stack.isEmpty ? 0 : _stack.last.id;
       _searchResults = null;
+      _searchQuery = '';
       _category = 'Semua';
     });
     await _loadContentOnly();
@@ -166,7 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (ok == true && ctl.text.trim().isNotEmpty) {
       try {
         await onSave(ctl.text.trim());
-        await _loadContentOnly();
+        await _refreshAfterMutation();
       } catch (e) {
         if (mounted) showError(context, e);
       }
@@ -222,7 +262,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => FilePreviewScreen(file: f)),
     );
     // File bisa saja dihapus/diubah dari preview lewat share; segarkan.
-    await _loadContentOnly();
+    await _refreshAfterMutation();
   }
 
   Future<void> _fileActions(TeleFile f) async {
@@ -277,7 +317,7 @@ class _HomeScreenState extends State<HomeScreen> {
       } else if (choice == 'extract') {
         final n = await api.extractZip(f.id, _folderId);
         if (mounted) showInfo(context, 'Extract selesai: $n file.');
-        await _loadContentOnly();
+        await _refreshAfterMutation();
       } else if (choice == 'delete') {
         final yes = await showDialog<bool>(
           context: context,
@@ -296,7 +336,8 @@ class _HomeScreenState extends State<HomeScreen> {
         );
         if (yes == true) {
           await api.deleteFile(f.id, f.messageId);
-          await _loadContentOnly();
+          if (mounted) showInfo(context, 'File dihapus: ${f.fileName}');
+          await _refreshAfterMutation();
         }
       }
     } catch (e) {
@@ -339,10 +380,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _folderRow(TeleFolder f) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: GlassCard(
+  Widget _folderRow(TeleFolder f, int index) {
+    return FadeSlideIn(
+      delay: Duration(milliseconds: 40 * (index % 8)),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: GlassCard(
         blur: false,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         radius: 20,
@@ -377,7 +420,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               } else if (v == 'delete') {
                 await api.deleteFolder(f.id);
-                await _loadContentOnly();
+                await _refreshAfterMutation();
               }
             },
             itemBuilder: (_) => const [
@@ -388,13 +431,16 @@ class _HomeScreenState extends State<HomeScreen> {
           onTap: () => _openFolder(f),
         ),
       ),
+    ),
     );
   }
 
-  Widget _fileRow(TeleFile f) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: GlassCard(
+  Widget _fileRow(TeleFile f, int index) {
+    return FadeSlideIn(
+      delay: Duration(milliseconds: 40 * (index % 8)),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: GlassCard(
         blur: false,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         radius: 20,
@@ -419,11 +465,14 @@ class _HomeScreenState extends State<HomeScreen> {
           onTap: () => _openPreview(f),
         ),
       ),
+    ),
     );
   }
 
-  Widget _fileGridTile(TeleFile f) {
-    return GlassCard(
+  Widget _fileGridTile(TeleFile f, int index) {
+    return FadeSlideIn(
+      delay: Duration(milliseconds: 40 * (index % 8)),
+      child: GlassCard(
       blur: false,
       radius: 22,
       padding: const EdgeInsets.all(14),
@@ -452,6 +501,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -473,7 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
         body: SafeArea(
           child: Column(
             children: [
-              _header(),
+              FadeSlideIn(child: _header()),
               Expanded(
                 child: RefreshIndicator(
                   onRefresh: _loadAll,
@@ -482,11 +532,21 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
                     children: [
                       if (_telegramDown) _telegramBanner(),
-                      if (_stats != null) _statsCard(),
+                      if (_stats != null)
+                        FadeSlideIn(
+                          delay: const Duration(milliseconds: 60),
+                          child: _statsCard(),
+                        ),
                       const SizedBox(height: 14),
-                      _searchField(),
+                      FadeSlideIn(
+                        delay: const Duration(milliseconds: 120),
+                        child: _searchField(),
+                      ),
                       const SizedBox(height: 12),
-                      _categoryRow(),
+                      FadeSlideIn(
+                        delay: const Duration(milliseconds: 160),
+                        child: _categoryRow(),
+                      ),
                       const SizedBox(height: 18),
                       if (_loading)
                         const Padding(
@@ -504,13 +564,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       else ...[
                         if (folders.isNotEmpty) ...[
                           _sectionTitle('Folder', folders.length),
-                          ...folders.map(_folderRow),
+                          ...folders.asMap().entries.map((e) => _folderRow(e.value, e.key)),
                           const SizedBox(height: 8),
                         ],
                         if (files.isNotEmpty) ...[
                           _sectionTitle('File', files.length),
-                          if (_gridView)
-                            GridView.builder(
+                          AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 280),
+                            switchInCurve: Curves.easeOutCubic,
+                            child: _gridView
+                                ? GridView.builder(
+                                    key: const ValueKey('grid'),
                               shrinkWrap: true,
                               physics: const NeverScrollableScrollPhysics(),
                               gridDelegate:
@@ -521,10 +585,17 @@ class _HomeScreenState extends State<HomeScreen> {
                                 childAspectRatio: 0.86,
                               ),
                               itemCount: files.length,
-                              itemBuilder: (_, i) => _fileGridTile(files[i]),
+                              itemBuilder: (_, i) => _fileGridTile(files[i], i),
                             )
-                          else
-                            ...files.map(_fileRow),
+                                : Column(
+                                    key: const ValueKey('list'),
+                                    children: files
+                                        .asMap()
+                                        .entries
+                                        .map((e) => _fileRow(e.value, e.key))
+                                        .toList(),
+                                  ),
+                          ),
                         ],
                       ],
                     ],
@@ -806,7 +877,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           onChanged: (v) {
             if (v.trim().isEmpty) {
-              setState(() => _searchResults = null);
+              setState(() {
+                _searchResults = null;
+                _searchQuery = '';
+              });
             }
           },
           onSubmitted: _doSearch,
