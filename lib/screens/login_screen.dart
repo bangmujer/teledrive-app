@@ -64,49 +64,60 @@ class _LoginScreenState extends State<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Center(
-                    child: Container(
-                      width: 92,
-                      height: 92,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [TeleDriveTheme.mint, TeleDriveTheme.teal],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(30),
-                        boxShadow: [
-                          BoxShadow(
-                            color: TeleDriveTheme.teal.withOpacity(0.4),
-                            blurRadius: 24,
-                            offset: const Offset(0, 10),
+                    child: FadeSlideIn(
+                      child: Container(
+                        width: 92,
+                        height: 92,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [TeleDriveTheme.mint, TeleDriveTheme.teal],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                        ],
+                          borderRadius: BorderRadius.circular(30),
+                          boxShadow: [
+                            BoxShadow(
+                              color: TeleDriveTheme.teal.withOpacity(0.4),
+                              blurRadius: 24,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.cloud_rounded,
+                            size: 52, color: Colors.white),
                       ),
-                      child: const Icon(Icons.cloud_rounded,
-                          size: 52, color: Colors.white),
                     ),
                   ),
                   const SizedBox(height: 18),
-                  const Text(
-                    'TeleDrive',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.w800,
-                      color: TeleDriveTheme.ink,
-                      letterSpacing: -0.5,
+                  const FadeSlideIn(
+                    delay: Duration(milliseconds: 80),
+                    child: Text(
+                      'TeleDrive',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.w800,
+                        color: TeleDriveTheme.ink,
+                        letterSpacing: -0.5,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 6),
-                  const Text(
-                    'File Telegram kamu, dengan gaya Google Drive.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: TeleDriveTheme.inkSoft, fontSize: 14),
+                  const FadeSlideIn(
+                    delay: Duration(milliseconds: 140),
+                    child: Text(
+                      'File Telegram kamu, dengan gaya Google Drive.',
+                      textAlign: TextAlign.center,
+                      style:
+                          TextStyle(color: TeleDriveTheme.inkSoft, fontSize: 14),
+                    ),
                   ),
                   const SizedBox(height: 26),
-                  GlassCard(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
+                  FadeSlideIn(
+                    delay: const Duration(milliseconds: 200),
+                    child: GlassCard(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const Text(
@@ -188,6 +199,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ],
                     ),
+                  ),
                   ),
                   const SizedBox(height: 14),
                   const Text(
