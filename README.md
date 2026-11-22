@@ -1,7 +1,7 @@
 # TeleDrive — Flutter (iOS + Android, satu codebase)
 
 Client Flutter untuk backend FastAPI TeleDrive di
-`https://teledrive.mjr-dev.my.id` (VPS, `/root/teledrive-backend/main.py`).
+`https://teledrive.mjr-dev.my.id`.
 Satu codebase, build APK via GitHub Actions (Ubuntu) dan IPA unsigned
 via GitHub Actions (macOS + Xcode 16+).
 
@@ -27,7 +27,7 @@ via GitHub Actions (macOS + Xcode 16+).
 - `.github/workflows/build-ipa.yml` — `flutter build ipa --no-codesign`.
 
 ## Cara build (tanpa Mac / tanpa Android SDK lokal)
-1. Push repo ini ke GitHub (repo baru di @bangmujer, mis. `teledrive-app`).
+1. Push repo ini ke GitHub.
 2. Tab Actions > pilih workflow > Run workflow.
 3. Download artifact: APK di `build-apk`, IPA di `build-ipa`.
    IPA-nya unsigned — install via TrollStore / Feather / ESign / AltStore.
