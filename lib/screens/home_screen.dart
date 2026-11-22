@@ -10,6 +10,7 @@ import '../api/teledrive_api.dart';
 import '../main.dart';
 import '../models.dart';
 import '../theme.dart';
+import 'file_preview_screen.dart';
 import 'sync_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -212,6 +213,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _openPreview(TeleFile f) async {
+    if (!isPreviewable(f)) {
+      await _fileActions(f);
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => FilePreviewScreen(file: f)),
+    );
+    // File bisa saja dihapus/diubah dari preview lewat share; segarkan.
+    await _loadContentOnly();
+  }
+
   Future<void> _fileActions(TeleFile f) async {
     final choice = await showModalBottomSheet<String>(
       context: context,
@@ -219,6 +232,13 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (isPreviewable(f))
+              ListTile(
+                leading: const Icon(Icons.visibility_rounded),
+                title: const Text('Preview'),
+                subtitle: Text('${f.fileName} • ${formatBytes(f.fileSize)}'),
+                onTap: () => Navigator.of(ctx).pop('preview'),
+              ),
             ListTile(
               leading: const Icon(Icons.download_rounded),
               title: const Text('Download / Bagikan'),
@@ -247,7 +267,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (choice == null || !mounted) return;
     try {
-      if (choice == 'download') {
+      if (choice == 'preview') {
+        await _openPreview(f);
+      } else if (choice == 'download') {
         await _downloadAndShare(f);
       } else if (choice == 'share') {
         final url = await api.shareFile(f.id);
@@ -390,8 +412,11 @@ class _HomeScreenState extends State<HomeScreen> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          trailing: const Icon(Icons.more_vert_rounded),
-          onTap: () => _fileActions(f),
+          trailing: IconButton(
+            icon: const Icon(Icons.more_vert_rounded),
+            onPressed: () => _fileActions(f),
+          ),
+          onTap: () => _openPreview(f),
         ),
       ),
     );
@@ -402,7 +427,7 @@ class _HomeScreenState extends State<HomeScreen> {
       blur: false,
       radius: 22,
       padding: const EdgeInsets.all(14),
-      onTap: () => _fileActions(f),
+      onTap: () => _openPreview(f),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
