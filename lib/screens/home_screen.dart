@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import '../api/teledrive_api.dart';
 import '../main.dart';
 import '../models.dart';
+import '../theme.dart';
 import 'sync_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -25,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String _category = 'Semua';
   bool _loading = false;
   bool _telegramDown = false;
+  bool _gridView = false;
   String? _error;
 
   static const categories = [
@@ -217,24 +220,24 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.download),
+              leading: const Icon(Icons.download_rounded),
               title: const Text('Download / Bagikan'),
               subtitle: Text('${f.fileName} • ${formatBytes(f.fileSize)}'),
               onTap: () => Navigator.of(ctx).pop('download'),
             ),
             ListTile(
-              leading: const Icon(Icons.link),
+              leading: const Icon(Icons.link_rounded),
               title: const Text('Buat link share'),
               onTap: () => Navigator.of(ctx).pop('share'),
             ),
             if (f.isZip)
               ListTile(
-                leading: const Icon(Icons.folder_zip),
+                leading: const Icon(Icons.folder_zip_rounded),
                 title: const Text('Extract ZIP ke folder ini'),
                 onTap: () => Navigator.of(ctx).pop('extract'),
               ),
             ListTile(
-              leading: const Icon(Icons.delete, color: Colors.red),
+              leading: const Icon(Icons.delete_rounded, color: Colors.red),
               title: const Text('Hapus (di Telegram juga)'),
               onTap: () => Navigator.of(ctx).pop('delete'),
             ),
@@ -279,62 +282,313 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  IconData _iconFor(String category) {
-    switch (category) {
-      case 'Image':
-        return Icons.image;
-      case 'Video':
-        return Icons.movie;
-      case 'Audio':
-        return Icons.music_note;
-      case 'Archive':
-        return Icons.archive;
-      case 'Document':
-        return Icons.description;
-      default:
-        return Icons.insert_drive_file;
+  Future<void> _syncNow() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final added = await api.syncNow();
+      if (!mounted) return;
+      messenger.showSnackBar(
+          SnackBar(content: Text('Sync selesai, $added file baru.')));
+      await _loadAll();
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+          content: Text(
+              'Sync gagal: ${e.toString().replaceFirst('Exception: ', '')}')));
     }
+  }
+
+  int _countFor(String cat) {
+    if (_stats == null) return 0;
+    final entry = _stats!.categories[cat];
+    return entry?['count'] ?? 0;
+  }
+
+  Widget _categoryIcon(String category, {double size = 48}) {
+    final style = TeleDriveTheme.categoryStyle(category);
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: style.color.withOpacity(0.13),
+        borderRadius: BorderRadius.circular(size * 0.32),
+      ),
+      child: Icon(style.icon, color: style.color, size: size * 0.52),
+    );
+  }
+
+  Widget _folderRow(TeleFolder f) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GlassCard(
+        blur: false,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        radius: 20,
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+          leading: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9AB00).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: const Icon(Icons.folder_rounded,
+                color: Color(0xFFEF8F00), size: 26),
+          ),
+          title: Text(
+            f.name,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: const Text('Folder'),
+          trailing: PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (v) async {
+              if (v == 'rename') {
+                await _promptText(
+                  title: 'Rename folder',
+                  label: 'Nama baru',
+                  initial: f.name,
+                  onSave: (val) => api.renameFolder(f.id, val),
+                );
+              } else if (v == 'delete') {
+                await api.deleteFolder(f.id);
+                await _loadContentOnly();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'rename', child: Text('Rename')),
+              PopupMenuItem(value: 'delete', child: Text('Hapus')),
+            ],
+          ),
+          onTap: () => _openFolder(f),
+        ),
+      ),
+    );
+  }
+
+  Widget _fileRow(TeleFile f) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: GlassCard(
+        blur: false,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        radius: 20,
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10),
+          leading: _categoryIcon(f.category),
+          title: Text(
+            f.fileName,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            '${formatBytes(f.fileSize)}  •  ${f.uploadTime}  •  ${f.category}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.more_vert_rounded),
+          onTap: () => _fileActions(f),
+        ),
+      ),
+    );
+  }
+
+  Widget _fileGridTile(TeleFile f) {
+    return GlassCard(
+      blur: false,
+      radius: 22,
+      padding: const EdgeInsets.all(14),
+      onTap: () => _fileActions(f),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _categoryIcon(f.category, size: 52),
+          const SizedBox(height: 12),
+          Text(
+            f.fileName,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const Spacer(),
+          Text(
+            formatBytes(f.fileSize),
+            style: const TextStyle(color: TeleDriveTheme.inkSoft, fontSize: 12),
+          ),
+          Text(
+            f.uploadTime,
+            style: const TextStyle(color: TeleDriveTheme.inkSoft, fontSize: 12),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final files = _searchResults ?? _content?.files ?? const <TeleFile>[];
-    final folders = _searchResults == null ? (_content?.folders ?? const <TeleFolder>[]) : const <TeleFolder>[];
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('TeleDrive — $_folderName'),
-        leading: _stack.isEmpty
-            ? null
-            : IconButton(icon: const Icon(Icons.arrow_back), onPressed: _goBackFolder),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.sync),
-            tooltip: 'Sync Telegram',
-            onPressed: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              try {
-                final added = await api.syncNow();
-                if (!mounted) return;
-                messenger.showSnackBar(SnackBar(
-                    content: Text('Sync selesai, $added file baru.')));
-                await _loadAll();
-              } catch (e) {
-                if (!mounted) return;
-                messenger.showSnackBar(SnackBar(
-                    content: Text(
-                        'Sync gagal: ${e.toString().replaceFirst('Exception: ', '')}')));
-              }
-            },
+    final folders = _searchResults == null
+        ? (_content?.folders ?? const <TeleFolder>[])
+        : const <TeleFolder>[];
+    return GlassBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        extendBody: true,
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: _upload,
+          icon: const Icon(Icons.upload_rounded),
+          label: const Text('Upload'),
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _header(),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _loadAll,
+                  color: TeleDriveTheme.teal,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                    children: [
+                      if (_telegramDown) _telegramBanner(),
+                      if (_stats != null) _statsCard(),
+                      const SizedBox(height: 14),
+                      _searchField(),
+                      const SizedBox(height: 12),
+                      _categoryRow(),
+                      const SizedBox(height: 18),
+                      if (_loading)
+                        const Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else if (_error != null)
+                        GlassCard(
+                          blur: false,
+                          child: Text(_error!,
+                              style: const TextStyle(color: Colors.red)),
+                        )
+                      else if (folders.isEmpty && files.isEmpty)
+                        _emptyState()
+                      else ...[
+                        if (folders.isNotEmpty) ...[
+                          _sectionTitle('Folder', folders.length),
+                          ...folders.map(_folderRow),
+                          const SizedBox(height: 8),
+                        ],
+                        if (files.isNotEmpty) ...[
+                          _sectionTitle('File', files.length),
+                          if (_gridView)
+                            GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                crossAxisSpacing: 10,
+                                mainAxisSpacing: 10,
+                                childAspectRatio: 0.86,
+                              ),
+                              itemCount: files.length,
+                              itemBuilder: (_, i) => _fileGridTile(files[i]),
+                            )
+                          else
+                            ...files.map(_fileRow),
+                        ],
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.settings),
+        ),
+      ),
+    );
+  }
+
+  Widget _header() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      child: Row(
+        children: [
+          if (_stack.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: GlassIconButton(
+                icon: Icons.arrow_back_rounded,
+                tooltip: 'Kembali',
+                onPressed: _goBackFolder,
+              ),
+            ),
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [TeleDriveTheme.mint, TeleDriveTheme.teal],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(15),
+              boxShadow: [
+                BoxShadow(
+                  color: TeleDriveTheme.teal.withOpacity(0.35),
+                  blurRadius: 12,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: const Icon(Icons.cloud_rounded, color: Colors.white, size: 26),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'TeleDrive',
+                  style: TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
+                    color: TeleDriveTheme.ink,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                Text(
+                  _folderName,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: TeleDriveTheme.inkSoft,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          GlassIconButton(
+            icon: Icons.sync_rounded,
+            tooltip: 'Sync Telegram',
+            onPressed: _syncNow,
+          ),
+          const SizedBox(width: 6),
+          GlassIconButton(
+            icon: Icons.settings_rounded,
             tooltip: 'Pengaturan Sync',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const SyncSettingsScreen()),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.add),
+          const SizedBox(width: 6),
+          GlassIconButton(
+            icon: Icons.create_new_folder_rounded,
             tooltip: 'Folder baru',
             onPressed: () => _promptText(
               title: 'Folder baru',
@@ -342,132 +596,281 @@ class _HomeScreenState extends State<HomeScreen> {
               onSave: (v) => api.createFolder(v, _folderId),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.logout),
+          const SizedBox(width: 6),
+          GlassIconButton(
+            icon: Icons.logout_rounded,
             tooltip: 'Logout',
             onPressed: () async {
+              final navigator = Navigator.of(context);
               await api.logout();
-              if (context.mounted) {
-                Navigator.of(context).pushReplacementNamed('/login');
-              }
+              navigator.pushReplacementNamed('/login');
             },
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _upload,
-        icon: const Icon(Icons.upload),
-        label: const Text('Upload'),
-      ),
-      body: RefreshIndicator(
-        onRefresh: _loadAll,
-        child: ListView(
-          padding: const EdgeInsets.all(12),
+    );
+  }
+
+  Widget _telegramBanner() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: GlassCard(
+        blur: false,
+        padding: const EdgeInsets.all(14),
+        child: Row(
           children: [
-            if (_telegramDown)
-              Card(
-                color: Colors.orange.shade50,
-                child: ListTile(
-                  leading: const Icon(Icons.warning, color: Colors.orange),
-                  title: const Text('Telegram belum terhubung'),
-                  subtitle: const Text('Dashboard terkunci sampai login Telegram selesai.'),
-                  trailing: TextButton(
-                    child: const Text('Login Telegram'),
-                    onPressed: () => Navigator.of(context)
-                        .pushReplacementNamed('/telegram'),
-                  ),
-                ),
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(13),
               ),
-            if (_stats != null)
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.storage),
-                  title: Text(
-                      '${_stats!.totalFiles} file • ${formatBytes(_stats!.totalSize)}'),
-                  subtitle: Text(_stats!.categories.entries
-                      .map((e) => '${e.key}: ${e.value['count']}')
-                      .join('  •  ')),
-                ),
-              ),
-            const SizedBox(height: 8),
-            TextField(
-              decoration: const InputDecoration(
-                labelText: 'Cari file...',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (v) {
-                if (v.trim().isEmpty) {
-                  setState(() => _searchResults = null);
-                }
-              },
-              onSubmitted: _doSearch,
+              child: const Icon(Icons.warning_rounded, color: Colors.orange),
             ),
-            const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: categories
-                    .map((c) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(c),
-                            selected: _category == c,
-                            onSelected: (_) => _doCategory(c),
-                          ),
-                        ))
-                    .toList(),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Telegram belum terhubung',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    'Dashboard terkunci sampai login Telegram selesai.',
+                    style: TextStyle(color: TeleDriveTheme.inkSoft, fontSize: 13),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            if (_loading)
-              const Center(child: CircularProgressIndicator())
-            else if (_error != null)
-              Text(_error!, style: const TextStyle(color: Colors.red))
-            else if (folders.isEmpty && files.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: Text('Kosong. Upload file pertama.')),
-              ),
-            ...folders.map((f) => Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.folder, color: Colors.amber),
-                    title: Text(f.name),
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (v) async {
-                        if (v == 'rename') {
-                          await _promptText(
-                            title: 'Rename folder',
-                            label: 'Nama baru',
-                            initial: f.name,
-                            onSave: (val) => api.renameFolder(f.id, val),
-                          );
-                        } else if (v == 'delete') {
-                          await api.deleteFolder(f.id);
-                          await _loadContentOnly();
-                        }
-                      },
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'rename', child: Text('Rename')),
-                        PopupMenuItem(value: 'delete', child: Text('Hapus')),
-                      ],
-                    ),
-                    onTap: () => _openFolder(f),
-                  ),
-                )),
-            ...files.map((f) => Card(
-                  child: ListTile(
-                    leading: Icon(_iconFor(f.category)),
-                    title: Text(f.fileName),
-                    subtitle: Text(
-                        '${formatBytes(f.fileSize)} • ${f.uploadTime} • ${f.category}'),
-                    trailing: const Icon(Icons.more_vert),
-                    onTap: () => _fileActions(f),
-                  ),
-                )),
-            const SizedBox(height: 72),
+            TextButton(
+              child: const Text('Login'),
+              onPressed: () => Navigator.of(context)
+                  .pushReplacementNamed('/telegram'),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _statsCard() {
+    final s = _stats!;
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: TeleDriveTheme.teal.withOpacity(0.13),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: const Icon(Icons.storage_rounded,
+                    color: TeleDriveTheme.teal),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${s.totalFiles} file',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: TeleDriveTheme.ink,
+                      ),
+                    ),
+                    Text(
+                      formatBytes(s.totalSize),
+                      style: const TextStyle(color: TeleDriveTheme.inkSoft),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.cloud_done_rounded,
+                  color: TeleDriveTheme.teal, size: 22),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: categories
+                  .where((c) => c != 'Semua')
+                  .map((c) {
+                    final style = TeleDriveTheme.categoryStyle(c);
+                    final selected = _category == c;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
+                        onTap: () => _doCategory(c),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? style.color
+                                : style.color.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(style.icon,
+                                  size: 17,
+                                  color: selected
+                                      ? Colors.white
+                                      : style.color),
+                              const SizedBox(width: 6),
+                              Text(
+                                '$c · ${_countFor(c)}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: selected
+                                      ? Colors.white
+                                      : TeleDriveTheme.ink,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  })
+                  .toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _searchField() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: TextField(
+          decoration: InputDecoration(
+            hintText: 'Cari di TeleDrive...',
+            hintStyle: const TextStyle(color: TeleDriveTheme.inkSoft),
+            prefixIcon: const Icon(Icons.search_rounded),
+            filled: true,
+            fillColor: Colors.white.withOpacity(0.6),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(22),
+              borderSide: BorderSide(color: Colors.white.withOpacity(0.8)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(22),
+              borderSide: BorderSide(color: Colors.white.withOpacity(0.8)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(22),
+              borderSide:
+                  const BorderSide(color: TeleDriveTheme.teal, width: 1.6),
+            ),
+          ),
+          onChanged: (v) {
+            if (v.trim().isEmpty) {
+              setState(() => _searchResults = null);
+            }
+          },
+          onSubmitted: _doSearch,
+        ),
+      ),
+    );
+  }
+
+  Widget _categoryRow() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: categories
+            .map((c) => Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(c),
+                    selected: _category == c,
+                    onSelected: (_) => _doCategory(c),
+                  ),
+                ))
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String title, int count) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10, top: 2),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: TeleDriveTheme.ink,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: TeleDriveTheme.teal.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: TeleDriveTheme.tealDark,
+              ),
+            ),
+          ),
+          const Spacer(),
+          if (title == 'File')
+            GlassIconButton(
+              icon: _gridView
+                  ? Icons.view_list_rounded
+                  : Icons.grid_view_rounded,
+              tooltip: _gridView ? 'Tampilan list' : 'Tampilan grid',
+              onPressed: () => setState(() => _gridView = !_gridView),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState() {
+    return const GlassCard(
+      padding: EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+      child: Column(
+        children: [
+          Icon(Icons.cloud_off_rounded,
+              size: 52, color: TeleDriveTheme.teal),
+          SizedBox(height: 12),
+          Text(
+            'Folder ini kosong',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
+          SizedBox(height: 4),
+          Text(
+            'Upload file pertama dengan tombol Upload di bawah.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: TeleDriveTheme.inkSoft),
+          ),
+        ],
       ),
     );
   }
