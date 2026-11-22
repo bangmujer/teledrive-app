@@ -28,6 +28,16 @@ class TeleDriveTheme {
       colorScheme: scheme,
       useMaterial3: true,
       scaffoldBackgroundColor: Colors.transparent,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: GlassPageTransitionsBuilder(),
+          TargetPlatform.iOS: GlassPageTransitionsBuilder(),
+          TargetPlatform.macOS: GlassPageTransitionsBuilder(),
+          TargetPlatform.windows: GlassPageTransitionsBuilder(),
+          TargetPlatform.linux: GlassPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: GlassPageTransitionsBuilder(),
+        },
+      ),
       fontFamily: null,
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
@@ -295,6 +305,87 @@ class GlassCard extends StatelessWidget {
         onTap: onTap,
         child: clipped,
       ),
+    );
+  }
+}
+
+/// Transisi antar-halaman untuk semua route: fade + geser naik halus,
+/// gaya liquid glass (dipakai ThemeData.pageTransitionsTheme).
+class GlassPageTransitionsBuilder extends PageTransitionsBuilder {
+  const GlassPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final curved =
+        CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+    return FadeTransition(
+      opacity: curved,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.06),
+          end: Offset.zero,
+        ).animate(curved),
+        child: child,
+      ),
+    );
+  }
+}
+
+/// Animasi masuk: fade + geser naik, dengan jeda untuk efek stagger
+/// (dipakai header, kartu statistik, dan baris file/folder).
+class FadeSlideIn extends StatefulWidget {
+  final Widget child;
+  final Duration delay;
+  final Duration duration;
+  const FadeSlideIn({
+    super.key,
+    required this.child,
+    this.delay = Duration.zero,
+    this.duration = const Duration(milliseconds: 320),
+  });
+
+  @override
+  State<FadeSlideIn> createState() => _FadeSlideInState();
+}
+
+class _FadeSlideInState extends State<FadeSlideIn>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+  late final Animation<Offset> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: widget.duration);
+    final curved =
+        CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+    _opacity = Tween<double>(begin: 0, end: 1).animate(curved);
+    _offset =
+        Tween<Offset>(begin: const Offset(0, 0.12), end: Offset.zero)
+            .animate(curved);
+    Future.delayed(widget.delay, () {
+      if (mounted) _controller.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: SlideTransition(position: _offset, child: widget.child),
     );
   }
 }
